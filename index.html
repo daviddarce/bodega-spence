@@ -1,0 +1,2234 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Bodega Spence - Sodexo</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #F8FAFC; }
+@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+@keyframes spin { to { transform:rotate(360deg); } }
+#loading { position:fixed;inset:0;background:#F8FAFC;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999; }
+.spinner { width:40px;height:40px;border:4px solid #E2E8F0;border-top-color:#1F4E79;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px; }
+</style>
+</head>
+<body>
+<div id="loading">
+  <div class="spinner"></div>
+  <div style="color:#1F4E79;font-weight:700;font-size:15px">Cargando Bodega Spence...</div>
+  <div style="color:#94A3B8;font-size:12px;margin-top:6px">Sodexo · BHP Spence</div>
+</div>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script>
+const SUPABASE_URL = "https://qgpxrmdkyiandkabsgsd.supabase.co";
+const SUPABASE_KEY = "sb_publishable_44CbQoA8kNcd6HvJrB73Yg_SFAYQcow";
+async function sbFetch(table, options = {}) {
+  const {
+    method = "GET",
+    body,
+    query = ""
+  } = options;
+  const url = `${SUPABASE_URL}/rest/v1/${table}${query}`;
+  const headers = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": `Bearer ${SUPABASE_KEY}`,
+    "Content-Type": "application/json"
+  };
+  if (method !== "GET") headers["Prefer"] = "return=representation";
+  const resp = await fetch(url, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(err);
+  }
+  return resp.status === 204 ? null : resp.json();
+}
+const CONGELADOS = [1, 2, 3, 4, 5, 7, 8, 10, 11, 14, 15, 22, 23, 24, 26];
+const REFRIGERADOS = [6, 9, 16, 25, 27];
+const SECOS = [12, 13, 17, 18, 19, 20, 21];
+const TIPOS = {
+  congelado: {
+    label: "Congelado",
+    color: "#0EA5E9",
+    bg: "#E0F2FE",
+    icon: "🧊",
+    ids: CONGELADOS
+  },
+  refrigerado: {
+    label: "Refrigerado",
+    color: "#10B981",
+    bg: "#D1FAE5",
+    icon: "❄️",
+    ids: REFRIGERADOS
+  },
+  camara: {
+    label: "Cámara 3",
+    color: "#10B981",
+    bg: "#D1FAE5",
+    icon: "🏭",
+    ids: ["C3"]
+  },
+  seco: {
+    label: "Seco",
+    color: "#F59E0B",
+    bg: "#FEF3C7",
+    icon: "📦",
+    ids: SECOS
+  }
+};
+function getReeferType(id) {
+  for (const [key, val] of Object.entries(TIPOS)) {
+    if (val.ids.includes(id) || val.ids.includes(Number(id))) return {
+      key,
+      ...val
+    };
+  }
+  return {
+    key: "seco",
+    ...TIPOS.seco
+  };
+}
+const ALL_REEFER_IDS = [...CONGELADOS, ...REFRIGERADOS, "C3", ...SECOS];
+function fmtDate(d) {
+  if (!d) return "—";
+  const [y, m, dd] = d.split("-");
+  return `${dd}/${m}/${y}`;
+}
+function fmtDT(ts) {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+function daysUntil(ds) {
+  if (!ds) return null;
+  const t = new Date();
+  t.setHours(0, 0, 0, 0);
+  return Math.round((new Date(ds) - t) / 86400000);
+}
+function Badge({
+  fecha
+}) {
+  if (!fecha) return null;
+  const d = daysUntil(fecha);
+  if (d === null) return null;
+  const s = {
+    padding: "2px 7px",
+    borderRadius: 99,
+    fontSize: 11,
+    fontWeight: 700
+  };
+  if (d < 0) return /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...s,
+      background: "#FEE2E2",
+      color: "#DC2626"
+    }
+  }, "VENCIDO");
+  if (d <= 7) return /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...s,
+      background: "#FEE2E2",
+      color: "#DC2626"
+    }
+  }, "Vence ", d, "d");
+  if (d <= 30) return /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...s,
+      background: "#FEF3C7",
+      color: "#D97706"
+    }
+  }, d, "d");
+  return /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...s,
+      background: "#D1FAE5",
+      color: "#059669"
+    }
+  }, d, "d");
+}
+const S = {
+  input: {
+    width: "100%",
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1.5px solid #E2E8F0",
+    fontSize: 15,
+    background: "#F8FAFC",
+    boxSizing: "border-box",
+    marginTop: 4,
+    fontFamily: "inherit"
+  },
+  label: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#64748B",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    display: "block"
+  },
+  btnPrimary: {
+    background: "#1F4E79",
+    color: "#fff",
+    border: "none",
+    borderRadius: 12,
+    padding: "13px 0",
+    width: "100%",
+    fontSize: 16,
+    fontWeight: 700,
+    cursor: "pointer",
+    marginTop: 8
+  },
+  btnSecondary: {
+    background: "#F1F5F9",
+    color: "#1F4E79",
+    border: "none",
+    borderRadius: 12,
+    padding: "13px 0",
+    width: "100%",
+    fontSize: 15,
+    fontWeight: 600,
+    cursor: "pointer",
+    marginTop: 8
+  },
+  btnDanger: {
+    background: "#DC2626",
+    color: "#fff",
+    border: "none",
+    borderRadius: 12,
+    padding: "13px 0",
+    width: "100%",
+    fontSize: 16,
+    fontWeight: 700,
+    cursor: "pointer",
+    marginTop: 8
+  },
+  btnGreen: {
+    background: "#059669",
+    color: "#fff",
+    border: "none",
+    borderRadius: 12,
+    padding: "13px 0",
+    width: "100%",
+    fontSize: 16,
+    fontWeight: 700,
+    cursor: "pointer",
+    marginTop: 8
+  },
+  card: {
+    background: "#fff",
+    borderRadius: 12,
+    padding: "12px 14px",
+    marginBottom: 10,
+    border: "1.5px solid #E2E8F0",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
+  },
+  group: {
+    marginBottom: 14
+  },
+  grid2: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 8
+  }
+};
+function ReeferOptions() {
+  return /*#__PURE__*/React.createElement(React.Fragment, null, Object.entries(TIPOS).map(([, v]) => v.ids.map(id => /*#__PURE__*/React.createElement("option", {
+    key: id,
+    value: id
+  }, v.icon, " ", id === "C3" ? "Cámara 3" : `Reefer ${id}`, " — ", v.label))));
+}
+function PhotoButtons({
+  onFile,
+  loading,
+  label = "imagen"
+}) {
+  const camRef = React.useRef();
+  const galRef = React.useRef();
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 8,
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => camRef.current?.click(),
+    style: {
+      ...S.btnSecondary,
+      marginTop: 0,
+      padding: "11px 0",
+      fontSize: 13
+    }
+  }, "📷 Cámara"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => galRef.current?.click(),
+    style: {
+      ...S.btnSecondary,
+      marginTop: 0,
+      padding: "11px 0",
+      fontSize: 13
+    }
+  }, "🖼️ Galería"), /*#__PURE__*/React.createElement("input", {
+    ref: camRef,
+    type: "file",
+    accept: "image/*",
+    capture: "environment",
+    style: {
+      display: "none"
+    },
+    onChange: e => e.target.files[0] && onFile(e.target.files[0])
+  }), /*#__PURE__*/React.createElement("input", {
+    ref: galRef,
+    type: "file",
+    accept: "image/*",
+    style: {
+      display: "none"
+    },
+    onChange: e => e.target.files[0] && onFile(e.target.files[0])
+  }), loading && /*#__PURE__*/React.createElement("div", {
+    style: {
+      gridColumn: "1/-1",
+      textAlign: "center",
+      color: "#1F4E79",
+      fontWeight: 700,
+      padding: 8
+    }
+  }, "🔍 Leyendo ", label, "..."));
+}
+async function callAI(file, prompt) {
+  const b64 = await new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(",")[1]);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+  const resp = await fetch("/.netlify/functions/ai-proxy", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      
+      
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1200,
+      messages: [{
+        role: "user",
+        content: [{
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: file.type,
+            data: b64
+          }
+        }, {
+          type: "text",
+          text: prompt
+        }]
+      }]
+    })
+  });
+  const data = await resp.json();
+  const text = data.content?.find(x => x.type === "text")?.text || "{}";
+  return JSON.parse(text.replace(/```json|```/g, "").trim());
+}
+function App() {
+  const [reefersData, setReefersData] = React.useState([]); // productos crudos desde Supabase
+  const [recepciones, setRecepciones] = React.useState([]);
+  const [guias, setGuias] = React.useState([]);
+  const [view, setView] = React.useState("home");
+  const [subview, setSubview] = React.useState(null);
+  const [selectedReefer, setSelectedReefer] = React.useState(null);
+  const [selectedGuia, setSelectedGuia] = React.useState(null);
+  const [busqueda, setBusqueda] = React.useState("");
+  const [toast, setToast] = React.useState(null);
+  const [turno, setTurno] = React.useState("");
+  const [turnoInput, setTurnoInput] = React.useState("");
+  const [iaLoading, setIaLoading] = React.useState(false);
+  const [iaStep, setIaStep] = React.useState("upload");
+  const [iaAssign, setIaAssign] = React.useState([]);
+  const [cargando, setCargando] = React.useState(true);
+  const [syncing, setSyncing] = React.useState(false);
+  const emptyForm = {
+    reefer: "",
+    nombre: "",
+    cantidad: "",
+    unidad: "kg",
+    lote: "",
+    vencimiento: "",
+    proveedor: "",
+    temperatura: "",
+    estado: "Conforme",
+    sku: ""
+  };
+  const [form, setForm] = React.useState(emptyForm);
+  const [egresoForm, setEgresoForm] = React.useState({
+    reefer: "",
+    nombre: "",
+    cantidad: ""
+  });
+  const [egresoIA, setEgresoIA] = React.useState([]);
+  const [egresoStep, setEgresoStep] = React.useState("menu");
+  const [egresoLoading, setEgresoLoading] = React.useState(false);
+  const showToast = (msg, type = "ok") => {
+    setToast({
+      msg,
+      type
+    });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  // Construir estructura de reefers agrupando productos por reefer
+  const reefers = ALL_REEFER_IDS.map(id => ({
+    id,
+    productos: reefersData.filter(p => String(p.reefer) === String(id))
+  }));
+
+  // Carga inicial desde Supabase
+  async function cargarTodo() {
+    setCargando(true);
+    try {
+      const [prods, recs, gs] = await Promise.all([sbFetch("productos", {
+        query: "?select=*&order=created_at.desc"
+      }), sbFetch("recepciones", {
+        query: "?select=*&order=created_at.desc&limit=200"
+      }), sbFetch("guias", {
+        query: "?select=*&order=created_at.desc"
+      })]);
+      setReefersData(prods || []);
+      setRecepciones((recs || []).map(r => ({
+        ...r,
+        timestamp: new Date(r.created_at).getTime()
+      })));
+      setGuias(gs || []);
+    } catch (e) {
+      showToast("Error al cargar datos de la nube", "err");
+    }
+    setCargando(false);
+  }
+  React.useEffect(() => {
+    cargarTodo();
+  }, []);
+
+  // Recargar cada 60 segundos, pero solo si no hay formulario activo
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      if (view === 'home' || view === 'buscar' || view === 'alertas' || view === 'recepciones' || view === 'guias' || view === 'conciliacion' || view === 'reefer') {
+        cargarTodo();
+      }
+    }, 300000);
+    return () => clearInterval(interval);
+  }, [view]);
+  const setF = (k, v) => setForm(f => ({
+    ...f,
+    [k]: v
+  }));
+  const todosProductos = reefers.flatMap(r => r.productos.map(p => ({
+    ...p,
+    reeferId: r.id,
+    tipo: getReeferType(r.id)
+  })));
+  const alertas = todosProductos.filter(p => {
+    const d = daysUntil(p.vencimiento);
+    return d !== null && d <= 30;
+  }).sort((a, b) => daysUntil(a.vencimiento) - daysUntil(b.vencimiento));
+  const resultados = busqueda.trim() ? todosProductos.filter(p => p.nombre.toLowerCase().includes(busqueda.toLowerCase())) : [];
+  const guiasPendientes = guias.filter(g => g.estado !== "Completa");
+  function goBack() {
+    setView("home");
+    setSubview(null);
+    setIaStep("upload");
+    setIaAssign([]);
+    setSelectedGuia(null);
+    setEgresoStep("menu");
+    setEgresoIA([]);
+  }
+  async function ingresarProducto(f, registrar = true) {
+    if (!f.reefer || !f.nombre || !f.cantidad) {
+      showToast("Completa los campos obligatorios", "err");
+      return false;
+    }
+    setSyncing(true);
+    try {
+      // Buscar si ya existe ese producto+lote en ese reefer
+      const existente = reefersData.find(p => String(p.reefer) === String(f.reefer) && p.nombre.toLowerCase() === f.nombre.toLowerCase() && (p.lote || "") === (f.lote || ""));
+      if (existente) {
+        const nuevaCantidad = parseFloat(existente.cantidad) + parseFloat(f.cantidad);
+        await sbFetch("productos", {
+          method: "PATCH",
+          query: `?id=eq.${existente.id}`,
+          body: {
+            cantidad: nuevaCantidad,
+            updated_at: new Date().toISOString()
+          }
+        });
+      } else {
+        await sbFetch("productos", {
+          method: "POST",
+          body: {
+            reefer: String(f.reefer),
+            nombre: f.nombre,
+            cantidad: parseFloat(f.cantidad),
+            unidad: f.unidad,
+            lote: f.lote || null,
+            vencimiento: f.vencimiento || null,
+            sku: f.sku || null
+          }
+        });
+      }
+      if (registrar) {
+        await sbFetch("recepciones", {
+          method: "POST",
+          body: {
+            tipo: "ENTRADA",
+            bodeguero: turno,
+            proveedor: f.proveedor || null,
+            nombre: f.nombre,
+            cantidad: parseFloat(f.cantidad),
+            unidad: f.unidad,
+            lote: f.lote || null,
+            vencimiento: f.vencimiento || null,
+            temperatura: f.temperatura ? parseFloat(f.temperatura) : null,
+            estado: f.estado,
+            reefer: String(f.reefer),
+            sku: f.sku || null
+          }
+        });
+        if (selectedGuia) {
+          const g = guias.find(x => x.id === selectedGuia);
+          if (g) {
+            const items = g.items.map(item => {
+              const match = item.nombre.toLowerCase().includes(f.nombre.toLowerCase().substring(0, 8)) || f.nombre.toLowerCase().includes(item.nombre.toLowerCase().substring(0, 8));
+              if (match) return {
+                ...item,
+                recibido: (item.recibido || 0) + parseFloat(f.cantidad)
+              };
+              return item;
+            });
+            const completa = items.every(i => (i.recibido || 0) >= i.cantidad);
+            await sbFetch("guias", {
+              method: "PATCH",
+              query: `?id=eq.${g.id}`,
+              body: {
+                items,
+                estado: completa ? "Completa" : "En proceso"
+              }
+            });
+          }
+        }
+      }
+      await cargarTodo();
+      return true;
+    } catch (e) {
+      showToast("Error al guardar en la nube", "err");
+      return false;
+    } finally {
+      setSyncing(false);
+    }
+  }
+  async function ingresar() {
+    if (await ingresarProducto(form)) {
+      showToast(`✅ ${form.nombre} → ${form.reefer === "C3" ? "Cámara 3" : "Reefer " + form.reefer}`);
+      setForm(emptyForm);
+      setView("home");
+    }
+  }
+  async function egresar() {
+    if (!egresoForm.reefer || !egresoForm.nombre || !egresoForm.cantidad) {
+      showToast("Completa todos los campos", "err");
+      return;
+    }
+    setSyncing(true);
+    try {
+      const existente = reefersData.find(p => String(p.reefer) === String(egresoForm.reefer) && p.nombre.toLowerCase() === egresoForm.nombre.toLowerCase());
+      if (!existente) {
+        showToast("Producto no encontrado", "err");
+        setSyncing(false);
+        return;
+      }
+      const nuevaCantidad = Math.max(0, parseFloat(existente.cantidad) - parseFloat(egresoForm.cantidad));
+      if (nuevaCantidad === 0) {
+        await sbFetch("productos", {
+          method: "DELETE",
+          query: `?id=eq.${existente.id}`
+        });
+      } else {
+        await sbFetch("productos", {
+          method: "PATCH",
+          query: `?id=eq.${existente.id}`,
+          body: {
+            cantidad: nuevaCantidad,
+            updated_at: new Date().toISOString()
+          }
+        });
+      }
+      await sbFetch("recepciones", {
+        method: "POST",
+        body: {
+          tipo: "EGRESO",
+          bodeguero: turno,
+          nombre: egresoForm.nombre,
+          cantidad: parseFloat(egresoForm.cantidad),
+          unidad: existente.unidad,
+          reefer: String(egresoForm.reefer),
+          estado: "Despachado"
+        }
+      });
+      await cargarTodo();
+      showToast("📤 Egreso registrado");
+      setEgresoForm({
+        reefer: "",
+        nombre: "",
+        cantidad: ""
+      });
+      setView("home");
+    } catch (e) {
+      showToast("Error al registrar egreso", "err");
+    } finally {
+      setSyncing(false);
+    }
+  }
+  async function confirmarIa() {
+    let count = 0;
+    for (const p of iaAssign) {
+      if (!p.reefer || !p.nombre) continue;
+      if (await ingresarProducto(p, true)) count++;
+    }
+    setIaStep("upload");
+    setIaAssign([]);
+    showToast(`✅ ${count} productos ingresados`);
+    setView("home");
+  }
+
+  // Leer guía de despacho
+  async function procesarGuia(file) {
+    setIaLoading(true);
+    try {
+      const r = await callAI(file, `Analiza esta guía de despacho o factura. Extrae el número de documento, proveedor y todos los productos con cantidades y unidades. Responde SOLO en JSON sin backticks:
+{"numero":"","proveedor":"","fecha":"","productos":[{"nombre":"","cantidad":0,"unidad":"unidad","codigo":""}]}`);
+      const items = (r.productos || []).map((p, i) => ({
+        ...p,
+        id: i,
+        recibido: 0
+      }));
+      const nuevaGuia = await sbFetch("guias", {
+        method: "POST",
+        body: {
+          numero: r.numero || "S/N",
+          proveedor: r.proveedor || null,
+          fecha: r.fecha || new Date().toISOString().split("T")[0],
+          bodeguero: turno,
+          estado: "Pendiente",
+          items
+        }
+      });
+      const guiaCreada = Array.isArray(nuevaGuia) ? nuevaGuia[0] : nuevaGuia;
+      await cargarTodo();
+      setSelectedGuia(guiaCreada.id);
+      showToast(`📄 Guía ${guiaCreada.numero} cargada — ${items.length} productos`);
+      setView("conciliacion");
+    } catch {
+      showToast("No se pudo leer la guía", "err");
+    }
+    setIaLoading(false);
+  }
+
+  // Leer etiqueta producto
+  async function procesarEtiqueta(file) {
+    setIaLoading(true);
+    try {
+      const r = await callAI(file, `Lee esta etiqueta de producto. Extrae toda la info disponible. Responde SOLO en JSON sin backticks:
+{"nombre":"","cantidad":0,"unidad":"kg","lote":"","vencimiento":"YYYY-MM-DD","proveedor":"","sku":""}
+Fecha de vencimiento en formato YYYY-MM-DD.`);
+      setForm(f => ({
+        ...f,
+        nombre: r.nombre || f.nombre,
+        cantidad: String(r.cantidad || f.cantidad),
+        unidad: r.unidad || f.unidad,
+        lote: r.lote || f.lote,
+        vencimiento: r.vencimiento || f.vencimiento,
+        proveedor: r.proveedor || f.proveedor,
+        sku: r.sku || f.sku
+      }));
+      showToast(r.nombre ? `📷 Detectado: ${r.nombre}` : "No se detectó producto, ingresa manualmente");
+    } catch {
+      showToast("Error al leer imagen", "err");
+    }
+    setIaLoading(false);
+  }
+
+  // Leer factura múltiple
+  async function procesarFacturaIA(file) {
+    setIaLoading(true);
+    try {
+      const r = await callAI(file, `Analiza esta factura o guía. Extrae proveedor y todos los productos. Responde SOLO en JSON sin backticks:
+{"proveedor":"","productos":[{"nombre":"","cantidad":0,"unidad":"kg","lote":"","vencimiento":"YYYY-MM-DD","sku":""}]}`);
+      const prods = (r.productos || []).map((p, i) => ({
+        ...p,
+        id: i,
+        reefer: "",
+        estado: "Conforme",
+        temperatura: "",
+        proveedor: r.proveedor || ""
+      }));
+      setIaAssign(prods);
+      setIaStep("assign");
+    } catch {
+      showToast("No se pudo leer la factura", "err");
+    }
+    setIaLoading(false);
+  }
+  async function procesarRequisicion(file) {
+    setEgresoLoading(true);
+    try {
+      const r = await callAI(file, `Analiza esta requisición o documento de despacho interno. Extrae el número de requisición y todos los productos con cantidades. Responde SOLO en JSON sin backticks:
+{"numero":"","solicitante":"","productos":[{"nombre":"","cantidad":0,"unidad":"unidad"}]}
+Si no puedes leer un campo déjalo vacío.`);
+      const prods = (r.productos || []).map((p, i) => {
+        const stockTotal = todosProductos.filter(x => x.nombre.toLowerCase().includes(p.nombre.toLowerCase().substring(0, 6))).reduce((s, x) => s + x.cantidad, 0);
+        return {
+          ...p,
+          id: i,
+          reefer: "",
+          hayStock: stockTotal >= p.cantidad,
+          stockDisponible: stockTotal
+        };
+      });
+      setEgresoIA({
+        numero: r.numero || "S/N",
+        solicitante: r.solicitante || "",
+        items: prods
+      });
+      setEgresoStep("ia_confirm");
+    } catch {
+      showToast("No se pudo leer la requisición", "err");
+    }
+    setEgresoLoading(false);
+  }
+  async function confirmarEgresoIA() {
+    let ok = 0;
+    let sin_reefer = 0;
+    let sin_stock = 0;
+    setSyncing(true);
+    try {
+      for (const p of egresoIA.items) {
+        if (!p.reefer) {
+          sin_reefer++;
+          continue;
+        }
+        const cant = parseFloat(p.cantidad || 0);
+        const existente = reefersData.find(x => String(x.reefer) === String(p.reefer) && x.nombre.toLowerCase().includes(p.nombre.toLowerCase().substring(0, 6)));
+        if (!existente) {
+          sin_stock++;
+          continue;
+        }
+        const nuevaCantidad = Math.max(0, parseFloat(existente.cantidad) - cant);
+        if (nuevaCantidad === 0) await sbFetch("productos", {
+          method: "DELETE",
+          query: `?id=eq.${existente.id}`
+        });else await sbFetch("productos", {
+          method: "PATCH",
+          query: `?id=eq.${existente.id}`,
+          body: {
+            cantidad: nuevaCantidad,
+            updated_at: new Date().toISOString()
+          }
+        });
+        await sbFetch("recepciones", {
+          method: "POST",
+          body: {
+            tipo: "EGRESO",
+            bodeguero: turno,
+            nombre: p.nombre,
+            cantidad: cant,
+            unidad: p.unidad || "unidad",
+            reefer: String(p.reefer),
+            requisicion: egresoIA.numero,
+            solicitante: egresoIA.solicitante,
+            estado: "Despachado"
+          }
+        });
+        ok++;
+      }
+      await cargarTodo();
+      if (sin_reefer > 0) showToast(`⚠️ ${sin_reefer} productos sin Reefer asignado`, "err");else {
+        showToast(`📤 ${ok} productos despachados — Req. ${egresoIA.numero}`);
+        setEgresoStep("menu");
+        setEgresoIA([]);
+      }
+    } catch (e) {
+      showToast("Error al procesar despacho", "err");
+    } finally {
+      setSyncing(false);
+    }
+  }
+  const titles = {
+    home: "Bodega",
+    buscar: "Buscar producto",
+    ingresar: "Recepción de producto",
+    egreso: "Despacho de mercadería",
+    alertas: "Alertas de vencimiento",
+    reefer: selectedReefer ? selectedReefer === "C3" ? "Cámara 3" : `Reefer ${selectedReefer}` : "Reefer",
+    factura: "Leer factura con IA",
+    recepciones: "Libro de Recepción",
+    guias: "Guías de Despacho",
+    conciliacion: "Conciliación"
+  };
+  if (!turno) return /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "-apple-system,sans-serif",
+      maxWidth: 430,
+      margin: "0 auto",
+      minHeight: "100vh",
+      background: "#F8FAFC",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 32
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 52,
+      marginBottom: 16
+    }
+  }, "🏭"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#1F4E79",
+      fontSize: 22,
+      fontWeight: 800,
+      marginBottom: 4
+    }
+  }, "Bodega Spence"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#64748B",
+      fontSize: 14,
+      marginBottom: 32
+    }
+  }, "Sodexo · BHP Spence"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: "100%",
+      background: "#fff",
+      borderRadius: 16,
+      padding: 24,
+      boxShadow: "0 4px 20px rgba(0,0,0,0.08)"
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "¿Quién está de turno?"), /*#__PURE__*/React.createElement("input", {
+    value: turnoInput,
+    onChange: e => setTurnoInput(e.target.value),
+    placeholder: "Tu nombre completo",
+    style: {
+      ...S.input,
+      marginBottom: 16
+    },
+    onKeyDown: e => e.key === "Enter" && turnoInput.trim() && setTurno(turnoInput.trim())
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => turnoInput.trim() && setTurno(turnoInput.trim()),
+    style: S.btnPrimary
+  }, "Ingresar →")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 20,
+      fontSize: 12,
+      color: "#94A3B8",
+      display: "flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 8,
+      height: 8,
+      borderRadius: 99,
+      background: "#10B981"
+    }
+  }), " Conectado a la nube"));
+  if (cargando) return /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "-apple-system,sans-serif",
+      maxWidth: 430,
+      margin: "0 auto",
+      minHeight: "100vh",
+      background: "#F8FAFC",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 40,
+      marginBottom: 12
+    }
+  }, "📡"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#1F4E79",
+      fontWeight: 700
+    }
+  }, "Cargando datos de la bodega..."));
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "-apple-system,sans-serif",
+      maxWidth: 430,
+      margin: "0 auto",
+      minHeight: "100vh",
+      background: "#F8FAFC",
+      paddingBottom: 80
+    }
+  }, toast && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "fixed",
+      top: 16,
+      left: "50%",
+      transform: "translateX(-50%)",
+      background: toast.type === "err" ? "#DC2626" : "#1F4E79",
+      color: "#fff",
+      padding: "12px 22px",
+      borderRadius: 14,
+      zIndex: 999,
+      fontSize: 14,
+      fontWeight: 600,
+      boxShadow: "0 4px 20px rgba(0,0,0,0.18)",
+      maxWidth: 340,
+      textAlign: "center"
+    }
+  }, toast.msg), syncing && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "fixed",
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 3,
+      background: "#10B981",
+      zIndex: 1000,
+      animation: "pulse 1s infinite"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#1F4E79",
+      padding: "16px 16px 12px",
+      position: "sticky",
+      top: 0,
+      zIndex: 100
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10
+    }
+  }, view !== "home" && /*#__PURE__*/React.createElement("button", {
+    onClick: goBack,
+    style: {
+      background: "rgba(255,255,255,0.15)",
+      border: "none",
+      borderRadius: 8,
+      color: "#fff",
+      padding: "6px 12px",
+      cursor: "pointer",
+      fontSize: 16
+    }
+  }, "←"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#93C5FD",
+      fontSize: 11,
+      fontWeight: 700,
+      letterSpacing: 1,
+      display: "flex",
+      alignItems: "center",
+      gap: 5
+    }
+  }, "SODEXO · SPENCE ", syncing && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 9
+    }
+  }, "🔄")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#fff",
+      fontSize: 17,
+      fontWeight: 800
+    }
+  }, titles[view] || "Bodega")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "right"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#93C5FD",
+      fontSize: 10
+    }
+  }, "Turno"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#fff",
+      fontSize: 12,
+      fontWeight: 700
+    }
+  }, turno.split(" ")[0])), alertas.length > 0 && view === "home" && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setView("alertas"),
+    style: {
+      background: "#DC2626",
+      color: "#fff",
+      border: "none",
+      borderRadius: 99,
+      padding: "3px 10px",
+      fontSize: 12,
+      fontWeight: 700,
+      cursor: "pointer",
+      marginLeft: 4
+    }
+  }, "⚠️", alertas.length))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "16px 16px 0"
+    }
+  }, view === "home" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 10,
+      marginBottom: 18
+    }
+  }, [{
+    l: "Buscar",
+    i: "🔍",
+    v: "buscar"
+  }, {
+    l: "Recepción",
+    i: "➕",
+    v: "ingresar"
+  }, {
+    l: "Egresar",
+    i: "📤",
+    v: "egreso"
+  }, {
+    l: "Factura IA",
+    i: "📸",
+    v: "factura"
+  }, {
+    l: "Conciliar",
+    i: "🔄",
+    v: "guias",
+    badge: guiasPendientes.length
+  }, {
+    l: "Libro",
+    i: "📋",
+    v: "recepciones",
+    badge: recepciones.length
+  }].map(a => /*#__PURE__*/React.createElement("button", {
+    key: a.v,
+    onClick: () => setView(a.v),
+    style: {
+      background: "#fff",
+      border: "1.5px solid #E2E8F0",
+      borderRadius: 14,
+      padding: "14px 10px",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: 4,
+      cursor: "pointer",
+      fontSize: 13,
+      fontWeight: 700,
+      color: "#1F4E79",
+      boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+      position: "relative"
+    }
+  }, a.badge > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      top: 6,
+      right: 8,
+      background: a.v === "guias" ? "#F59E0B" : "#1F4E79",
+      color: "#fff",
+      borderRadius: 99,
+      padding: "1px 6px",
+      fontSize: 10,
+      fontWeight: 800
+    }
+  }, a.badge), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 24
+    }
+  }, a.i), a.l))), Object.entries(TIPOS).map(([, tipo]) => /*#__PURE__*/React.createElement("div", {
+    key: tipo.label
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 7,
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 18
+    }
+  }, tipo.icon), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: 800,
+      fontSize: 15,
+      color: tipo.color
+    }
+  }, tipo.label), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "#94A3B8",
+      fontWeight: 600
+    }
+  }, tipo.ids.length, " unidades")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(3,1fr)",
+      gap: 8,
+      marginBottom: 20
+    }
+  }, reefers.filter(r => tipo.ids.includes(r.id) || tipo.ids.includes(String(r.id))).map(r => {
+    const venc = r.productos.filter(p => {
+      const d = daysUntil(p.vencimiento);
+      return d !== null && d <= 7;
+    }).length;
+    return /*#__PURE__*/React.createElement("button", {
+      key: r.id,
+      onClick: () => {
+        setSelectedReefer(r.id);
+        setView("reefer");
+      },
+      style: {
+        background: r.productos.length > 0 ? tipo.bg : "#fff",
+        border: `2px solid ${r.productos.length > 0 ? tipo.color : "#E2E8F0"}`,
+        borderRadius: 12,
+        padding: "12px 8px",
+        cursor: "pointer",
+        textAlign: "center",
+        position: "relative"
+      }
+    }, venc > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: "absolute",
+        top: 4,
+        right: 4,
+        background: "#DC2626",
+        color: "#fff",
+        borderRadius: 99,
+        width: 16,
+        height: 16,
+        fontSize: 9,
+        fontWeight: 800,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center"
+      }
+    }, venc), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: r.id === "C3" ? 13 : 18,
+        fontWeight: 800,
+        color: tipo.color
+      }
+    }, r.id === "C3" ? "C3" : r.id), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "#64748B",
+        fontWeight: 600
+      }
+    }, r.productos.length, " prod."));
+  }))))), view === "reefer" && selectedReefer && (() => {
+    const r = reefers.find(x => String(x.id) === String(selectedReefer));
+    const tipo = getReeferType(r.id);
+    return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: tipo.bg,
+        border: `2px solid ${tipo.color}`,
+        borderRadius: 14,
+        padding: "12px 16px",
+        marginBottom: 16,
+        display: "flex",
+        alignItems: "center",
+        gap: 10
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 28
+      }
+    }, tipo.icon), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 800,
+        color: tipo.color,
+        fontSize: 16
+      }
+    }, r.id === "C3" ? "Cámara 3" : `Reefer ${r.id}`, " — ", tipo.label), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 13,
+        color: "#64748B"
+      }
+    }, r.productos.length, " productos"))), r.productos.length === 0 ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: "center",
+        color: "#94A3B8",
+        padding: 40
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 40
+      }
+    }, "📭"), "Vacío") : r.productos.map(p => /*#__PURE__*/React.createElement("div", {
+      key: p.id,
+      style: S.card
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "flex-start"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 700,
+        fontSize: 15
+      }
+    }, p.nombre), /*#__PURE__*/React.createElement(Badge, {
+      fecha: p.vencimiento
+    })), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 12,
+        marginTop: 6,
+        flexWrap: "wrap"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        color: "#64748B"
+      }
+    }, "📊 ", /*#__PURE__*/React.createElement("b", null, p.cantidad, " ", p.unidad)), p.lote && /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        color: "#64748B"
+      }
+    }, "🏷 Lote: ", /*#__PURE__*/React.createElement("b", null, p.lote))), p.vencimiento && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "#94A3B8",
+        marginTop: 4
+      }
+    }, "Vence: ", fmtDate(p.vencimiento)))), /*#__PURE__*/React.createElement("button", {
+      onClick: () => {
+        setForm({
+          ...emptyForm,
+          reefer: String(r.id)
+        });
+        setView("ingresar");
+      },
+      style: S.btnPrimary
+    }, "+ Ingresar producto aquí"));
+  })(), view === "buscar" && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("input", {
+    value: busqueda,
+    onChange: e => setBusqueda(e.target.value),
+    placeholder: "Nombre del producto...",
+    style: {
+      ...S.input,
+      fontSize: 16,
+      marginBottom: 16
+    },
+    autoFocus: true
+  }), busqueda.trim() && resultados.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      color: "#94A3B8",
+      padding: 30
+    }
+  }, "No encontrado"), resultados.map((p, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: S.card
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      fontSize: 15
+    }
+  }, p.nombre), /*#__PURE__*/React.createElement(Badge, {
+    fecha: p.vencimiento
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 6,
+      display: "flex",
+      gap: 10,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      background: p.tipo.bg,
+      color: p.tipo.color,
+      borderRadius: 8,
+      padding: "3px 10px",
+      fontSize: 12,
+      fontWeight: 700
+    }
+  }, p.tipo.icon, " ", p.reeferId === "C3" ? "Cámara 3" : `Reefer ${p.reeferId}`), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: "#64748B"
+    }
+  }, "📊 ", p.cantidad, " ", p.unidad), p.lote && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: "#64748B"
+    }
+  }, "Lote: ", p.lote))))), view === "ingresar" && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#EFF6FF",
+      borderRadius: 12,
+      padding: "10px 14px",
+      marginBottom: 14,
+      fontSize: 13,
+      color: "#1F4E79",
+      fontWeight: 600
+    }
+  }, "👤 Recibiendo: ", turno), /*#__PURE__*/React.createElement(PhotoButtons, {
+    onFile: procesarEtiqueta,
+    loading: iaLoading,
+    label: "etiqueta"
+  }), [{
+    label: "Reefer / Cámara *",
+    key: "reefer",
+    type: "reefer"
+  }, {
+    label: "Producto *",
+    key: "nombre",
+    placeholder: "Nombre del producto"
+  }, {
+    label: "Proveedor",
+    key: "proveedor",
+    placeholder: "Nombre del proveedor"
+  }, {
+    label: "SKU / Código",
+    key: "sku",
+    placeholder: "Opcional"
+  }].map(f => /*#__PURE__*/React.createElement("div", {
+    key: f.key,
+    style: S.group
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, f.label), f.type === "reefer" ? /*#__PURE__*/React.createElement("select", {
+    value: form[f.key],
+    onChange: e => setF(f.key, e.target.value),
+    style: S.input
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "Seleccionar"), /*#__PURE__*/React.createElement(ReeferOptions, null)) : /*#__PURE__*/React.createElement("input", {
+    value: form[f.key],
+    onChange: e => setF(f.key, e.target.value),
+    placeholder: f.placeholder,
+    style: S.input
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: S.grid2
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.group
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "Cantidad *"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: form.cantidad,
+    onChange: e => setF("cantidad", e.target.value),
+    placeholder: "0",
+    style: S.input
+  })), /*#__PURE__*/React.createElement("div", {
+    style: S.group
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "Unidad"), /*#__PURE__*/React.createElement("select", {
+    value: form.unidad,
+    onChange: e => setF("unidad", e.target.value),
+    style: S.input
+  }, ["kg", "g", "L", "ml", "unidad", "caja", "saco", "bandeja"].map(u => /*#__PURE__*/React.createElement("option", {
+    key: u,
+    value: u
+  }, u))))), /*#__PURE__*/React.createElement("div", {
+    style: S.grid2
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.group
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "Lote"), /*#__PURE__*/React.createElement("input", {
+    value: form.lote,
+    onChange: e => setF("lote", e.target.value),
+    placeholder: "Opcional",
+    style: S.input
+  })), /*#__PURE__*/React.createElement("div", {
+    style: S.group
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "Vencimiento"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: form.vencimiento,
+    onChange: e => setF("vencimiento", e.target.value),
+    style: S.input
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: S.grid2
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.group
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "Temperatura °C"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: form.temperatura,
+    onChange: e => setF("temperatura", e.target.value),
+    placeholder: "-18",
+    style: S.input
+  })), /*#__PURE__*/React.createElement("div", {
+    style: S.group
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "Estado"), /*#__PURE__*/React.createElement("select", {
+    value: form.estado,
+    onChange: e => setF("estado", e.target.value),
+    style: S.input
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "Conforme"
+  }, "✅ Conforme"), /*#__PURE__*/React.createElement("option", {
+    value: "No conforme"
+  }, "❌ No conforme"), /*#__PURE__*/React.createElement("option", {
+    value: "Observación"
+  }, "⚠️ Observación")))), /*#__PURE__*/React.createElement("button", {
+    onClick: ingresar,
+    style: S.btnPrimary
+  }, "✅ Confirmar recepción")), view === "egreso" && /*#__PURE__*/React.createElement("div", null, egresoStep === "menu" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#FEF2F2",
+      border: "2px dashed #FCA5A5",
+      borderRadius: 16,
+      padding: "20px",
+      textAlign: "center",
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 40
+    }
+  }, "📋"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      color: "#DC2626",
+      fontSize: 15,
+      marginBottom: 4
+    }
+  }, "Despacho de mercadería"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#64748B",
+      fontSize: 13
+    }
+  }, "Fotografía la requisición o ingresa manualmente")), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setEgresoStep("ia_upload"),
+    style: {
+      ...S.btnDanger,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8
+    }
+  }, "📷 Fotografiar requisición con IA"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setEgresoStep("manual"),
+    style: S.btnSecondary
+  }, "✏️ Ingreso manual")), egresoStep === "ia_upload" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#FEF2F2",
+      border: "2px dashed #FCA5A5",
+      borderRadius: 16,
+      padding: "24px 20px",
+      textAlign: "center",
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 48
+    }
+  }, "📋"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      color: "#DC2626",
+      fontSize: 16,
+      marginBottom: 4
+    }
+  }, "Fotografía la requisición"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#64748B",
+      fontSize: 14
+    }
+  }, "La IA leerá los productos y cantidades a despachar")), /*#__PURE__*/React.createElement(PhotoButtons, {
+    onFile: procesarRequisicion,
+    loading: egresoLoading,
+    label: "requisición"
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setEgresoStep("menu"),
+    style: S.btnSecondary
+  }, "← Volver")), egresoStep === "ia_confirm" && egresoIA.items && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#FEE2E2",
+      borderRadius: 12,
+      padding: "10px 14px",
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      color: "#DC2626",
+      fontSize: 14
+    }
+  }, "📋 Requisición ", egresoIA.numero), egresoIA.solicitante && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "#64748B",
+      marginTop: 2
+    }
+  }, "Solicitante: ", egresoIA.solicitante)), egresoIA.items.map((p, i) => {
+    const stockItems = todosProductos.filter(x => x.nombre.toLowerCase().includes(p.nombre.toLowerCase().substring(0, 6)));
+    const stockTotal = stockItems.reduce((s, x) => s + x.cantidad, 0);
+    const hayStock = stockTotal >= p.cantidad;
+    return /*#__PURE__*/React.createElement("div", {
+      key: p.id,
+      style: {
+        background: "#fff",
+        borderRadius: 14,
+        padding: 14,
+        marginBottom: 12,
+        border: `1.5px solid ${hayStock ? "#E2E8F0" : "#FCA5A5"}`
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 8
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 700,
+        fontSize: 15
+      }
+    }, p.nombre), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        fontWeight: 700,
+        padding: "2px 8px",
+        borderRadius: 99,
+        background: hayStock ? "#D1FAE5" : "#FEE2E2",
+        color: hayStock ? "#065F46" : "#DC2626"
+      }
+    }, hayStock ? "✅ Stock OK" : "⚠️ Sin stock")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 12,
+        fontSize: 13,
+        color: "#64748B",
+        marginBottom: 10
+      }
+    }, /*#__PURE__*/React.createElement("span", null, "Solicitado: ", /*#__PURE__*/React.createElement("b", null, p.cantidad, " ", p.unidad)), /*#__PURE__*/React.createElement("span", null, "Disponible: ", /*#__PURE__*/React.createElement("b", null, stockTotal, " ", p.unidad))), /*#__PURE__*/React.createElement("div", {
+      style: S.group
+    }, /*#__PURE__*/React.createElement("label", {
+      style: S.label
+    }, "Reefer de salida *"), /*#__PURE__*/React.createElement("select", {
+      value: p.reefer || "",
+      onChange: e => setEgresoIA(prev => ({
+        ...prev,
+        items: prev.items.map((x, j) => j === i ? {
+          ...x,
+          reefer: e.target.value
+        } : x)
+      })),
+      style: S.input
+    }, /*#__PURE__*/React.createElement("option", {
+      value: ""
+    }, "Seleccionar"), stockItems.map(s => {
+      const t = getReeferType(s.reeferId);
+      return /*#__PURE__*/React.createElement("option", {
+        key: s.reeferId,
+        value: s.reeferId
+      }, t.icon, " ", s.reeferId === "C3" ? "Cámara 3" : `Reefer ${s.reeferId}`, " — ", s.cantidad, " ", s.unidad);
+    }))), /*#__PURE__*/React.createElement("div", {
+      style: S.group
+    }, /*#__PURE__*/React.createElement("label", {
+      style: S.label
+    }, "Cantidad a despachar"), /*#__PURE__*/React.createElement("input", {
+      type: "number",
+      value: p.cantidad,
+      onChange: e => setEgresoIA(prev => ({
+        ...prev,
+        items: prev.items.map((x, j) => j === i ? {
+          ...x,
+          cantidad: e.target.value
+        } : x)
+      })),
+      style: S.input
+    })));
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: confirmarEgresoIA,
+    style: S.btnDanger
+  }, "📤 Confirmar despacho completo"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setEgresoStep("ia_upload"),
+    style: S.btnSecondary
+  }, "↩ Volver a fotografiar")), egresoStep === "manual" && /*#__PURE__*/React.createElement(React.Fragment, null, [{
+    label: "Reefer *",
+    key: "reefer",
+    type: "reefer"
+  }, {
+    label: "Producto *",
+    key: "nombre",
+    placeholder: "Nombre exacto"
+  }, {
+    label: "Cantidad *",
+    key: "cantidad",
+    type: "number",
+    placeholder: "0"
+  }].map(f => /*#__PURE__*/React.createElement("div", {
+    key: f.key,
+    style: S.group
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, f.label), f.type === "reefer" ? /*#__PURE__*/React.createElement("select", {
+    value: egresoForm[f.key],
+    onChange: e => setEgresoForm(x => ({
+      ...x,
+      [f.key]: e.target.value
+    })),
+    style: S.input
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "Seleccionar"), /*#__PURE__*/React.createElement(ReeferOptions, null)) : /*#__PURE__*/React.createElement("input", {
+    type: f.type || "text",
+    value: egresoForm[f.key],
+    onChange: e => setEgresoForm(x => ({
+      ...x,
+      [f.key]: e.target.value
+    })),
+    placeholder: f.placeholder,
+    style: S.input
+  }))), /*#__PURE__*/React.createElement("button", {
+    onClick: egresar,
+    style: S.btnDanger
+  }, "📤 Registrar egreso"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setEgresoStep("menu"),
+    style: S.btnSecondary
+  }, "← Volver"))), view === "factura" && /*#__PURE__*/React.createElement("div", null, iaStep === "upload" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#EFF6FF",
+      border: "2px dashed #93C5FD",
+      borderRadius: 16,
+      padding: "24px 20px",
+      textAlign: "center",
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 48
+    }
+  }, "📄"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      color: "#1F4E79",
+      fontSize: 16,
+      marginBottom: 4
+    }
+  }, "Fotografía la factura"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#64748B",
+      fontSize: 14
+    }
+  }, "La IA leerá todos los productos automáticamente")), /*#__PURE__*/React.createElement(PhotoButtons, {
+    onFile: procesarFacturaIA,
+    loading: iaLoading,
+    label: "factura"
+  })), iaStep === "assign" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#D1FAE5",
+      borderRadius: 12,
+      padding: "10px 14px",
+      marginBottom: 16,
+      color: "#065F46",
+      fontWeight: 700,
+      fontSize: 14
+    }
+  }, "✅ ", iaAssign.length, " productos — Asigna Reefer y verifica"), iaAssign.map((p, i) => /*#__PURE__*/React.createElement("div", {
+    key: p.id,
+    style: {
+      background: "#fff",
+      borderRadius: 14,
+      padding: 14,
+      marginBottom: 14,
+      border: "1.5px solid #E2E8F0"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      fontSize: 15,
+      marginBottom: 10
+    }
+  }, p.nombre), /*#__PURE__*/React.createElement("div", {
+    style: S.grid2
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.group
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "Cantidad"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: p.cantidad,
+    onChange: e => setIaAssign(a => a.map((x, j) => j === i ? {
+      ...x,
+      cantidad: e.target.value
+    } : x)),
+    style: S.input
+  })), /*#__PURE__*/React.createElement("div", {
+    style: S.group
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "Unidad"), /*#__PURE__*/React.createElement("select", {
+    value: p.unidad || "kg",
+    onChange: e => setIaAssign(a => a.map((x, j) => j === i ? {
+      ...x,
+      unidad: e.target.value
+    } : x)),
+    style: S.input
+  }, ["kg", "g", "L", "ml", "unidad", "caja", "saco", "bandeja"].map(u => /*#__PURE__*/React.createElement("option", {
+    key: u,
+    value: u
+  }, u))))), /*#__PURE__*/React.createElement("div", {
+    style: S.group
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "Reefer *"), /*#__PURE__*/React.createElement("select", {
+    value: p.reefer || "",
+    onChange: e => setIaAssign(a => a.map((x, j) => j === i ? {
+      ...x,
+      reefer: e.target.value
+    } : x)),
+    style: S.input
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "Seleccionar"), /*#__PURE__*/React.createElement(ReeferOptions, null))), /*#__PURE__*/React.createElement("div", {
+    style: S.grid2
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.group
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "Lote"), /*#__PURE__*/React.createElement("input", {
+    value: p.lote || "",
+    onChange: e => setIaAssign(a => a.map((x, j) => j === i ? {
+      ...x,
+      lote: e.target.value
+    } : x)),
+    placeholder: "Opcional",
+    style: S.input
+  })), /*#__PURE__*/React.createElement("div", {
+    style: S.group
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "Vencimiento"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: p.vencimiento || "",
+    onChange: e => setIaAssign(a => a.map((x, j) => j === i ? {
+      ...x,
+      vencimiento: e.target.value
+    } : x)),
+    style: S.input
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: S.grid2
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.group
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "Temp °C"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: p.temperatura || "",
+    onChange: e => setIaAssign(a => a.map((x, j) => j === i ? {
+      ...x,
+      temperatura: e.target.value
+    } : x)),
+    placeholder: "-18",
+    style: S.input
+  })), /*#__PURE__*/React.createElement("div", {
+    style: S.group
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "Estado"), /*#__PURE__*/React.createElement("select", {
+    value: p.estado || "Conforme",
+    onChange: e => setIaAssign(a => a.map((x, j) => j === i ? {
+      ...x,
+      estado: e.target.value
+    } : x)),
+    style: S.input
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "Conforme"
+  }, "✅ Conforme"), /*#__PURE__*/React.createElement("option", {
+    value: "No conforme"
+  }, "❌ No conforme"), /*#__PURE__*/React.createElement("option", {
+    value: "Observación"
+  }, "⚠️ Observación")))))), /*#__PURE__*/React.createElement("button", {
+    onClick: confirmarIa,
+    style: S.btnPrimary
+  }, "✅ Confirmar todos"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setIaStep("upload"),
+    style: S.btnSecondary
+  }, "↩ Volver"))), view === "guias" && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#EFF6FF",
+      border: "2px dashed #93C5FD",
+      borderRadius: 16,
+      padding: "20px",
+      textAlign: "center",
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 40
+    }
+  }, "📄"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      color: "#1F4E79",
+      fontSize: 15,
+      marginBottom: 4
+    }
+  }, "Fotografía la guía de despacho"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#64748B",
+      fontSize: 13
+    }
+  }, "La IA leerá los productos esperados para conciliar")), /*#__PURE__*/React.createElement(PhotoButtons, {
+    onFile: procesarGuia,
+    loading: iaLoading,
+    label: "guía"
+  }), guias.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      fontSize: 14,
+      color: "#1F4E79",
+      marginBottom: 10,
+      marginTop: 8
+    }
+  }, "Guías registradas"), guias.map(g => {
+    const total = g.items.length;
+    const ok = g.items.filter(i => (i.recibido || 0) >= i.cantidad).length;
+    const pct = total > 0 ? Math.round(ok / total * 100) : 0;
+    return /*#__PURE__*/React.createElement("div", {
+      key: g.id,
+      style: {
+        ...S.card,
+        cursor: "pointer",
+        borderLeft: `4px solid ${g.estado === "Completa" ? "#10B981" : g.estado === "En proceso" ? "#F59E0B" : "#94A3B8"}`
+      },
+      onClick: () => {
+        setSelectedGuia(g.id);
+        setView("conciliacion");
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "flex-start"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 700,
+        fontSize: 15
+      }
+    }, "Guía ", g.numero), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        fontWeight: 700,
+        padding: "2px 8px",
+        borderRadius: 99,
+        background: g.estado === "Completa" ? "#D1FAE5" : g.estado === "En proceso" ? "#FEF3C7" : "#F1F5F9",
+        color: g.estado === "Completa" ? "#065F46" : g.estado === "En proceso" ? "#D97706" : "#64748B"
+      }
+    }, g.estado)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "#94A3B8",
+        margin: "4px 0"
+      }
+    }, g.proveedor, " · ", fmtDate(g.fecha)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: "#F1F5F9",
+        borderRadius: 99,
+        height: 6,
+        marginTop: 8
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: pct === 100 ? "#10B981" : "#F59E0B",
+        borderRadius: 99,
+        height: 6,
+        width: `${pct}%`,
+        transition: "width 0.3s"
+      }
+    })), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "#64748B",
+        marginTop: 4
+      }
+    }, ok, "/", total, " productos recibidos (", pct, "%)"));
+  }))), view === "conciliacion" && selectedGuia && (() => {
+    const g = guias.find(x => x.id === selectedGuia);
+    if (!g) return null;
+    const total = g.items.length;
+    const ok = g.items.filter(i => (i.recibido || 0) >= i.cantidad).length;
+    const pct = total > 0 ? Math.round(ok / total * 100) : 0;
+    return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: "#EFF6FF",
+        borderRadius: 14,
+        padding: "12px 16px",
+        marginBottom: 16
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 800,
+        color: "#1F4E79",
+        fontSize: 16
+      }
+    }, "Guía ", g.numero), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 13,
+        color: "#64748B"
+      }
+    }, g.proveedor, " · ", fmtDate(g.fecha)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: "#fff",
+        borderRadius: 99,
+        height: 8,
+        marginTop: 10
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: pct === 100 ? "#10B981" : "#F59E0B",
+        borderRadius: 99,
+        height: 8,
+        width: `${pct}%`,
+        transition: "width 0.3s"
+      }
+    })), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 13,
+        fontWeight: 700,
+        color: pct === 100 ? "#059669" : "#D97706",
+        marginTop: 6
+      }
+    }, ok, "/", total, " productos recibidos (", pct, "%)")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 700,
+        fontSize: 13,
+        color: "#64748B",
+        marginBottom: 8,
+        textTransform: "uppercase",
+        letterSpacing: 0.5
+      }
+    }, "Estado de productos"), g.items.map((item, i) => {
+      const recibido = item.recibido || 0;
+      const diff = recibido - item.cantidad;
+      const completo = recibido >= item.cantidad;
+      const parcial = recibido > 0 && recibido < item.cantidad;
+      return /*#__PURE__*/React.createElement("div", {
+        key: i,
+        style: {
+          ...S.card,
+          borderLeft: `4px solid ${completo ? "#10B981" : parcial ? "#F59E0B" : "#E2E8F0"}`
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center"
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontWeight: 700,
+          fontSize: 14,
+          flex: 1,
+          marginRight: 8
+        }
+      }, item.nombre), /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 11,
+          fontWeight: 700,
+          padding: "2px 8px",
+          borderRadius: 99,
+          background: completo ? "#D1FAE5" : parcial ? "#FEF3C7" : "#F1F5F9",
+          color: completo ? "#065F46" : parcial ? "#D97706" : "#64748B",
+          whiteSpace: "nowrap"
+        }
+      }, completo ? "✅ OK" : parcial ? "⚠️ Parcial" : "⏳ Pendiente")), /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 16,
+          marginTop: 6,
+          fontSize: 13
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: "#64748B"
+        }
+      }, "Esperado: ", /*#__PURE__*/React.createElement("b", null, item.cantidad, " ", item.unidad)), /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: completo ? "#059669" : parcial ? "#D97706" : "#94A3B8"
+        }
+      }, "Recibido: ", /*#__PURE__*/React.createElement("b", null, recibido, " ", item.unidad))), diff !== 0 && recibido > 0 && /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 12,
+          marginTop: 4,
+          color: diff > 0 ? "#059669" : "#DC2626",
+          fontWeight: 600
+        }
+      }, diff > 0 ? `+${diff} excedente` : `${diff} faltante`));
+    }), /*#__PURE__*/React.createElement("button", {
+      onClick: () => {
+        setForm({
+          ...emptyForm,
+          proveedor: g.proveedor
+        });
+        setView("ingresar");
+      },
+      style: S.btnGreen
+    }, "➕ Ingresar producto de esta guía"), pct === 100 && /*#__PURE__*/React.createElement("button", {
+      onClick: () => {
+        setGuias(prev => prev.map(x => x.id === selectedGuia ? {
+          ...x,
+          estado: "Completa"
+        } : x));
+        showToast("✅ Guía marcada como completa");
+        goBack();
+      },
+      style: S.btnPrimary
+    }, "✅ Marcar guía como completa"));
+  })(), view === "recepciones" && /*#__PURE__*/React.createElement("div", null, recepciones.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      color: "#94A3B8",
+      padding: 40
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 48
+    }
+  }, "📋"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      marginTop: 8
+    }
+  }, "Sin recepciones registradas")) : recepciones.map(r => {
+    const tipo = getReeferType(r.reefer);
+    return /*#__PURE__*/React.createElement("div", {
+      key: r.id,
+      style: {
+        ...S.card,
+        borderLeft: `4px solid ${r.estado === "Conforme" ? "#10B981" : r.estado === "No conforme" ? "#DC2626" : "#F59E0B"}`
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "flex-start",
+        marginBottom: 6
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 700,
+        fontSize: 15
+      }
+    }, r.nombre), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        fontWeight: 700,
+        padding: "2px 8px",
+        borderRadius: 99,
+        background: r.estado === "Conforme" ? "#D1FAE5" : r.estado === "No conforme" ? "#FEE2E2" : "#FEF3C7",
+        color: r.estado === "Conforme" ? "#065F46" : r.estado === "No conforme" ? "#DC2626" : "#D97706"
+      }
+    }, r.estado)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "#94A3B8",
+        marginBottom: 6
+      }
+    }, fmtDT(r.timestamp), " · ", r.bodeguero), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap"
+      }
+    }, r.proveedor && /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 12,
+        color: "#64748B"
+      }
+    }, "🏢 ", r.proveedor), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 12,
+        color: "#64748B"
+      }
+    }, "📊 ", r.cantidad, " ", r.unidad), r.lote && /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 12,
+        color: "#64748B"
+      }
+    }, "🏷 ", r.lote), r.temperatura && /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 12,
+        color: "#64748B"
+      }
+    }, "🌡 ", r.temperatura, "°C"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        background: tipo.bg,
+        color: tipo.color,
+        borderRadius: 6,
+        padding: "1px 8px",
+        fontSize: 12,
+        fontWeight: 700
+      }
+    }, tipo.icon, " ", r.reefer === "C3" ? "C3" : `R${r.reefer}`)), r.vencimiento && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "#94A3B8",
+        marginTop: 4
+      }
+    }, "Vence: ", fmtDate(r.vencimiento)));
+  })), view === "alertas" && /*#__PURE__*/React.createElement("div", null, alertas.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      color: "#94A3B8",
+      padding: 40
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 48
+    }
+  }, "✅"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      marginTop: 8
+    }
+  }, "Sin alertas")) : alertas.map((p, i) => {
+    const d = daysUntil(p.vencimiento);
+    return /*#__PURE__*/React.createElement("div", {
+      key: i,
+      style: {
+        background: d <= 7 ? "#FEF2F2" : "#FFFBEB",
+        borderRadius: 12,
+        padding: "12px 14px",
+        marginBottom: 10,
+        border: `1.5px solid ${d <= 7 ? "#FCA5A5" : "#FCD34D"}`
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 700,
+        fontSize: 15
+      }
+    }, p.nombre), /*#__PURE__*/React.createElement(Badge, {
+      fecha: p.vencimiento
+    })), /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 6,
+        display: "flex",
+        gap: 10
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        background: p.tipo.bg,
+        color: p.tipo.color,
+        borderRadius: 8,
+        padding: "3px 10px",
+        fontSize: 12,
+        fontWeight: 700
+      }
+    }, p.tipo.icon, " ", p.reeferId === "C3" ? "C3" : `R${p.reeferId}`), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        color: "#64748B"
+      }
+    }, "📊 ", p.cantidad, " ", p.unidad)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "#94A3B8",
+        marginTop: 4
+      }
+    }, "Vence: ", fmtDate(p.vencimiento)));
+  }))), view === "home" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "fixed",
+      bottom: 0,
+      left: "50%",
+      transform: "translateX(-50%)",
+      width: "100%",
+      maxWidth: 430,
+      background: "#fff",
+      borderTop: "1.5px solid #E2E8F0",
+      display: "flex",
+      padding: "10px 0 14px"
+    }
+  }, [{
+    i: "🏠",
+    l: "Inicio",
+    v: "home"
+  }, {
+    i: "🔍",
+    l: "Buscar",
+    v: "buscar"
+  }, {
+    i: "➕",
+    l: "Recepción",
+    v: "ingresar"
+  }, {
+    i: "🔄",
+    l: "Conciliar",
+    v: "guias"
+  }, {
+    i: "📋",
+    l: "Libro",
+    v: "recepciones"
+  }].map(n => /*#__PURE__*/React.createElement("button", {
+    key: n.v,
+    onClick: () => setView(n.v),
+    style: {
+      flex: 1,
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: 2,
+      fontSize: 10,
+      fontWeight: 700,
+      color: "#64748B"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 20
+    }
+  }, n.i), n.l))));
+}
+
+try {
+  const root = ReactDOM.createRoot(document.getElementById('root'));
+  root.render(React.createElement(App));
+  document.getElementById('loading').style.display = 'none';
+} catch(e) {
+  document.getElementById('loading').innerHTML = '<div style="padding:32px;text-align:center;color:#DC2626"><div style="font-size:32px">⚠️</div><div style="font-weight:700;margin:8px 0">Error al cargar</div><pre style="font-size:11px;text-align:left;background:#F1F5F9;padding:12px;border-radius:8px">' + e.message + '</pre><button onclick="location.reload()" style="background:#1F4E79;color:#fff;border:none;border-radius:10px;padding:12px 20px;font-weight:700;margin-top:12px;cursor:pointer;font-size:15px">🔄 Reintentar</button></div>';
+}
+</script>
+</body>
+</html>
